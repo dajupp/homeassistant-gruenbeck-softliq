@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import ipaddress
 import logging
 import re
+from time import monotonic
 from typing import Any
 
 from aiohttp import ClientError, ClientTimeout
@@ -79,6 +80,7 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.url = f"http://{formatted_host}/mux_http"
         self.host = address.compressed
         self.last_successful_update: datetime | None = None
+        self.last_request_duration: float | None = None
 
     @property
     def has_fresh_data(self) -> bool:
@@ -92,6 +94,7 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Request device data without blocking Home Assistant's event loop."""
         session = async_get_clientsession(self.hass)
+        started_at = monotonic()
         try:
             async with session.post(
                 self.url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT
@@ -100,7 +103,15 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 content = await response.text()
             values = _parse_response(content)
         except (ClientError, TimeoutError, ValueError) as err:
+            self.last_request_duration = monotonic() - started_at
+            _LOGGER.warning(
+                "POST-Abfrage von %s fehlgeschlagen nach %.2f s: %s",
+                self.host,
+                self.last_request_duration,
+                err,
+            )
             raise UpdateFailed(f"Abruf von {self.host} fehlgeschlagen: {err}") from err
 
+        self.last_request_duration = monotonic() - started_at
         self.last_successful_update = datetime.now(timezone.utc)
         return values

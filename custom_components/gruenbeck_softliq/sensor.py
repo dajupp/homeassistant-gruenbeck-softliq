@@ -128,6 +128,7 @@ async def async_setup_entry(
         GruenbeckSensor(coordinator, entry, description) for description in SENSORS
     ]
     entities.append(GruenbeckLastSuccessfulUpdateSensor(coordinator, entry))
+    entities.append(GruenbeckLastRequestDurationSensor(coordinator, entry))
     async_add_entities(entities)
 
 
@@ -181,6 +182,47 @@ class GruenbeckLastSuccessfulUpdateSensor(GruenbeckCoordinatorEntity, SensorEnti
         }
 
     @property
+    def available(self) -> bool:
+        """Keep the last successful timestamp visible even after data goes stale."""
+        return self.coordinator.last_successful_update is not None
+
+    @property
     def native_value(self) -> datetime | None:
         """Return the timestamp of the most recent successful poll."""
         return self.coordinator.last_successful_update
+
+
+class GruenbeckLastRequestDurationSensor(
+    CoordinatorEntity[GruenbeckDataUpdateCoordinator], SensorEntity
+):
+    """Expose the duration of the most recent POST attempt."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-outline"
+    _attr_name = "Dauer letzter POST"
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self, coordinator: GruenbeckDataUpdateCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_last_request_duration"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Gruenbeck softliQ",
+            "manufacturer": "Grünbeck",
+            "model": "softliQ",
+            "configuration_url": f"http://{entry.options.get(CONF_HOST, entry.data[CONF_HOST])}",
+        }
+
+    @property
+    def available(self) -> bool:
+        """Keep the latest request duration visible after a failed attempt."""
+        return self.coordinator.last_request_duration is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the most recent request duration in seconds."""
+        return self.coordinator.last_request_duration

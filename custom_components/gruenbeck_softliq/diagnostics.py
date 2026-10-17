@@ -24,5 +24,6 @@ async def async_get_config_entry_diagnostics(
             else None
         ),
         "last_update_success": coordinator.last_update_success,
+        "last_request_duration": coordinator.last_request_duration,
         "values": coordinator.data,
     }
