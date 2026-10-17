@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
-from homeassistant.const import CONF_HOST, PERCENTAGE, UnitOfTime, UnitOfVolume
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
+from homeassistant.const import (
+    CONF_HOST,
+    EntityCategory,
+    PERCENTAGE,
+    UnitOfTime,
+    UnitOfVolume,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
-    DataUpdateCoordinator,
 )
-from homeassistant.config_entries import ConfigEntry
 
 from .const import DOMAIN
+from .coordinator import GruenbeckDataUpdateCoordinator
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -104,19 +115,23 @@ async def async_setup_entry(
 ) -> None:
     """Set up softliQ sensors."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
+    entities = [
         GruenbeckSensor(coordinator, entry, description) for description in SENSORS
-    )
+    ]
+    entities.append(GruenbeckLastSuccessfulUpdateSensor(coordinator, entry))
+    async_add_entities(entities)
 
 
-class GruenbeckSensor(CoordinatorEntity[DataUpdateCoordinator[dict[str, Any]]], SensorEntity):
+class GruenbeckSensor(
+    CoordinatorEntity[GruenbeckDataUpdateCoordinator], SensorEntity
+):
     """Represent one softliQ value as a Home Assistant sensor."""
 
     entity_description: GruenbeckSensorDescription
 
     def __init__(
         self,
-        coordinator: DataUpdateCoordinator[dict[str, Any]],
+        coordinator: GruenbeckDataUpdateCoordinator,
         entry: ConfigEntry,
         description: GruenbeckSensorDescription,
     ) -> None:
@@ -135,3 +150,32 @@ class GruenbeckSensor(CoordinatorEntity[DataUpdateCoordinator[dict[str, Any]]], 
     def native_value(self) -> int | float | None:
         """Return the latest value, or None if the device did not provide it."""
         return self.coordinator.data.get(self.entity_description.value_key)
+
+
+class GruenbeckLastSuccessfulUpdateSensor(
+    CoordinatorEntity[GruenbeckDataUpdateCoordinator], SensorEntity
+):
+    """Expose the last successful device request as a diagnostic timestamp."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:clock-check-outline"
+    _attr_name = "Letzter erfolgreicher Datenabruf"
+
+    def __init__(
+        self, coordinator: GruenbeckDataUpdateCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_last_successful_update"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Gruenbeck softliQ",
+            "manufacturer": "Grünbeck",
+            "model": "softliQ",
+            "configuration_url": f"http://{entry.options.get(CONF_HOST, entry.data[CONF_HOST])}",
+        }
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the timestamp of the most recent successful poll."""
+        return self.coordinator.last_successful_update
