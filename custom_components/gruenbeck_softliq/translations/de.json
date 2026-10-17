@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Gruenbeck softliQ",
+        "description": "Gib die IP-Adresse deiner Enthärtungsanlage ein.",
+        "data": {
+          "host": "IP-Adresse"
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Bitte gib eine gültige IPv4- oder IPv6-Adresse ein."
+    },
+    "abort": {
+      "already_configured": "Diese Anlage ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "IP-Adresse ändern",
+        "data": {
+          "host": "IP-Adresse"
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Bitte gib eine gültige IPv4- oder IPv6-Adresse ein."
+    }
+  }
+}
