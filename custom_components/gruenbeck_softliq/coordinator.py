@@ -19,7 +19,8 @@ from homeassistant.helpers.update_coordinator import (
 _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=1)
-REQUEST_TIMEOUT = ClientTimeout(total=45, connect=10, sock_read=35)
+REQUEST_TIMEOUT = ClientTimeout(total=120, connect=10, sock_read=110)
+DATA_MAX_AGE = timedelta(minutes=10)
 REQUEST_DATA = "id=625&show=D_A_1_1|D_A_1_2|D_A_2_2|D_A_3_1|D_A_3_2|D_Y_1|D_A_1_3|D_A_2_3|D_Y_5~"
 
 _REQUIRED_FIELDS = ("D_A_1_1", "D_A_1_2", "D_A_3_1", "D_A_3_2", "D_Y_1", "D_A_1_3", "D_Y_5")
@@ -78,6 +79,15 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.url = f"http://{formatted_host}/mux_http"
         self.host = address.compressed
         self.last_successful_update: datetime | None = None
+
+    @property
+    def has_fresh_data(self) -> bool:
+        """Return whether cached values are still within the allowed stale period."""
+        return (
+            self.data is not None
+            and self.last_successful_update is not None
+            and datetime.now(timezone.utc) - self.last_successful_update < DATA_MAX_AGE
+        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Request device data without blocking Home Assistant's event loop."""

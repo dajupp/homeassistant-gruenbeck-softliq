@@ -36,6 +36,15 @@ class GruenbeckSensorDescription(SensorEntityDescription):
     value_key: str
 
 
+class GruenbeckCoordinatorEntity(CoordinatorEntity[GruenbeckDataUpdateCoordinator]):
+    """Keep coordinator entities available while cached data is still fresh."""
+
+    @property
+    def available(self) -> bool:
+        """Stay available until cached values exceed their maximum age."""
+        return self.coordinator.has_fresh_data
+
+
 SENSORS = (
     GruenbeckSensorDescription(
         key="flow_rate",
@@ -122,9 +131,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class GruenbeckSensor(
-    CoordinatorEntity[GruenbeckDataUpdateCoordinator], SensorEntity
-):
+class GruenbeckSensor(GruenbeckCoordinatorEntity, SensorEntity):
     """Represent one softliQ value as a Home Assistant sensor."""
 
     entity_description: GruenbeckSensorDescription
@@ -152,9 +159,7 @@ class GruenbeckSensor(
         return self.coordinator.data.get(self.entity_description.value_key)
 
 
-class GruenbeckLastSuccessfulUpdateSensor(
-    CoordinatorEntity[GruenbeckDataUpdateCoordinator], SensorEntity
-):
+class GruenbeckLastSuccessfulUpdateSensor(GruenbeckCoordinatorEntity, SensorEntity):
     """Expose the last successful device request as a diagnostic timestamp."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
