@@ -98,19 +98,38 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Request device data without blocking Home Assistant's event loop."""
         session = async_get_clientsession(self.hass)
         started_at = monotonic()
+        http_status = None
+        request_content_type = None
+        response_content_type = None
+        response_content_length = None
+        response_text_length = None
         try:
             async with session.post(
                 self.url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT
             ) as response:
+                http_status = response.status
+                request_content_type = response.request_info.headers.get(
+                    "Content-Type"
+                )
+                response_content_type = response.headers.get("Content-Type")
+                response_content_length = response.headers.get("Content-Length")
                 response.raise_for_status()
                 content = await response.text()
+                response_text_length = len(content)
             values = _parse_response(content)
         except (ClientError, TimeoutError, ValueError) as err:
             self.last_request_duration = monotonic() - started_at
             _LOGGER.warning(
-                "POST-Abfrage von %s fehlgeschlagen nach %.2f s: %s",
+                "POST-Abfrage von %s fehlgeschlagen nach %.2f s "
+                "(HTTP %s, Request Content-Type %s, Response Content-Type %s, "
+                "Content-Length %s, Textlänge %s): %s",
                 self.host,
                 self.last_request_duration,
+                http_status,
+                request_content_type,
+                response_content_type,
+                response_content_length,
+                response_text_length,
                 err,
             )
             raise UpdateFailed(f"Abruf von {self.host} fehlgeschlagen: {err}") from err
