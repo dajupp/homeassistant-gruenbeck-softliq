@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=1)
 REQUEST_TIMEOUT = ClientTimeout(total=45, connect=10, sock_read=35)
+REQUEST_DATA = "id=625&show=D_A_1_1|D_A_1_2|D_A_2_2|D_A_3_1|D_A_3_2|D_Y_1|D_A_1_3|D_A_2_3|D_Y_5~"
 
 _REQUIRED_FIELDS = ("D_A_1_1", "D_A_1_2", "D_A_3_1", "D_A_3_2", "D_Y_1", "D_A_1_3", "D_Y_5")
 _OPTIONAL_FIELDS = ("D_A_2_1", "D_A_2_2", "D_A_2_3")
@@ -82,7 +83,9 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Request device data without blocking Home Assistant's event loop."""
         session = async_get_clientsession(self.hass)
         try:
-            async with session.get(self.url, timeout=REQUEST_TIMEOUT) as response:
+            async with session.post(
+                self.url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT
+            ) as response:
                 response.raise_for_status()
                 content = await response.text()
             values = _parse_response(content)
