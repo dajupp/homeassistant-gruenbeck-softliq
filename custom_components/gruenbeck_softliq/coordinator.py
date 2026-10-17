@@ -43,7 +43,10 @@ def _parse_response(content: str) -> dict[str, Any]:
     """Parse required and optional numeric fields from a device response."""
     code_match = re.search(r"<\s*code\s*>\s*(\w+)\s*</\s*code\s*>", content, re.IGNORECASE)
     if code_match is None:
-        raise ValueError("Antwort enthält keinen <code>-Wert")
+        preview = content[:160] + "..." if len(content) > 160 else content
+        raise ValueError(
+            f"Antwort enthält keinen <code>-Wert. Response Preview: {preview!r}"
+        )
 
     values: dict[str, Any] = {"code": code_match.group(1)}
     missing = []
