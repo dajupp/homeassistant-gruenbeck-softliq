@@ -9,9 +9,8 @@ import re
 from time import monotonic
 from typing import Any
 
-from aiohttp import ClientError, ClientTimeout
+import requests
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -20,13 +19,18 @@ from homeassistant.helpers.update_coordinator import (
 _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=1)
-REQUEST_TIMEOUT = ClientTimeout(total=120, connect=10, sock_read=110)
+REQUEST_TIMEOUT = (10, 110)
 DATA_MAX_AGE = timedelta(minutes=10)
 REQUEST_DATA = "id=625&show=D_A_1_1|D_A_1_2|D_A_2_2|D_A_3_1|D_A_3_2|D_Y_1|D_A_1_3|D_A_2_3|D_Y_5~"
 
 _REQUIRED_FIELDS = ("D_A_1_1", "D_A_1_2", "D_A_3_1", "D_A_3_2", "D_Y_1", "D_A_1_3", "D_Y_5")
 _OPTIONAL_FIELDS = ("D_A_2_1", "D_A_2_2", "D_A_2_3")
 _NUMBER_PATTERN = re.compile(r"[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)")
+
+
+def _post_request(url: str) -> requests.Response:
+    """Perform the blocking POST using the known-working requests behavior."""
+    return requests.post(url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT)
 
 
 def _read_tag(content: str, tag: str) -> str | None:
@@ -96,28 +100,24 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Request device data without blocking Home Assistant's event loop."""
-        session = async_get_clientsession(self.hass)
         started_at = monotonic()
+        response = None
         http_status = None
         request_content_type = None
         response_content_type = None
         response_content_length = None
         response_text_length = None
         try:
-            async with session.post(
-                self.url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT
-            ) as response:
-                http_status = response.status
-                request_content_type = response.request_info.headers.get(
-                    "Content-Type"
-                )
-                response_content_type = response.headers.get("Content-Type")
-                response_content_length = response.headers.get("Content-Length")
-                response.raise_for_status()
-                content = await response.text()
-                response_text_length = len(content)
+            response = await self.hass.async_add_executor_job(_post_request, self.url)
+            http_status = response.status_code
+            request_content_type = response.request.headers.get("Content-Type")
+            response_content_type = response.headers.get("Content-Type")
+            response_content_length = response.headers.get("Content-Length")
+            response.raise_for_status()
+            content = response.text
+            response_text_length = len(content)
             values = _parse_response(content)
-        except (ClientError, TimeoutError, ValueError) as err:
+        except (requests.exceptions.RequestException, TimeoutError, ValueError) as err:
             self.last_request_duration = monotonic() - started_at
             _LOGGER.warning(
                 "POST-Abfrage von %s fehlgeschlagen nach %.2f s "
@@ -133,6 +133,9 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 err,
             )
             raise UpdateFailed(f"Abruf von {self.host} fehlgeschlagen: {err}") from err
+        finally:
+            if response is not None:
+                response.close()
 
         self.last_request_duration = monotonic() - started_at
         self.last_successful_update = datetime.now(timezone.utc)

@@ -1,6 +1,9 @@
 {
   "domain": "gruenbeck_softliq",
   "name": "Grünbeck softliQ",
+  "requirements": [
+    "requests"
+  ],
   "codeowners": [],
   "config_flow": true,
   "documentation": "https://github.com/dajupp/homeassistant-gruenbeck-softliq/blob/main/README.md",
