@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 import ipaddress
 import logging
@@ -19,6 +20,8 @@ _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=1)
 REQUEST_TIMEOUT = (10, 110)
+MAX_RETRIES = 5
+RETRY_DELAY = 1
 DATA_MAX_AGE = timedelta(minutes=10)
 REQUEST_DATA = "id=625&show=D_A_1_1|D_A_1_2|D_A_2_2|D_A_3_1|D_A_3_2|D_Y_1|D_A_1_3|D_A_2_3|D_Y_5~"
 
@@ -111,42 +114,71 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Request device data without blocking Home Assistant's event loop."""
         started_at = monotonic()
-        response = None
+        last_error: Exception | None = None
         http_status = None
         request_content_type = None
         response_content_type = None
         response_content_length = None
         response_text_length = None
-        try:
-            response = await self.hass.async_add_executor_job(_post_request, self.url)
-            http_status = response.status_code
-            request_content_type = response.request.headers.get("Content-Type")
-            response_content_type = response.headers.get("Content-Type")
-            response_content_length = response.headers.get("Content-Length")
-            response.raise_for_status()
-            content = response.text
-            response_text_length = len(content)
-            values = _parse_response(content)
-        except (RequestFailed, TimeoutError, ValueError) as err:
-            self.last_request_duration = monotonic() - started_at
-            _LOGGER.warning(
-                "POST-Abfrage von %s fehlgeschlagen nach %.2f s "
-                "(HTTP %s, Request Content-Type %s, Response Content-Type %s, "
-                "Content-Length %s, Textlänge %s): %s",
-                self.host,
-                self.last_request_duration,
-                http_status,
-                request_content_type,
-                response_content_type,
-                response_content_length,
-                response_text_length,
-                err,
-            )
-            raise UpdateFailed(f"Abruf von {self.host} fehlgeschlagen: {err}") from err
-        finally:
-            if response is not None:
-                response.close()
 
-        self.last_request_duration = monotonic() - started_at
-        self.last_successful_update = datetime.now(timezone.utc)
-        return values
+        for attempt in range(MAX_RETRIES + 1):
+            attempt_started_at = monotonic()
+            response = None
+            try:
+                response = await self.hass.async_add_executor_job(
+                    _post_request, self.url
+                )
+                http_status = response.status_code
+                request_content_type = response.request.headers.get("Content-Type")
+                response_content_type = response.headers.get("Content-Type")
+                response_content_length = response.headers.get("Content-Length")
+                content = response.text
+                response_text_length = len(content)
+                if not content.strip():
+                    raise ValueError("Leere Antwort vom Gerät")
+                values = _parse_response(content)
+            except (RequestFailed, TimeoutError, ValueError) as err:
+                last_error = err
+                self.last_request_duration = monotonic() - attempt_started_at
+                if attempt == MAX_RETRIES:
+                    total_duration = monotonic() - started_at
+                    _LOGGER.warning(
+                        "POST-Abfrage von %s nach %d Versuchen fehlgeschlagen "
+                        "(Gesamtdauer %.2f s, letzter HTTP-Status %s, "
+                        "Request Content-Type %s, Response Content-Type %s, "
+                        "Content-Length %s, Textlänge %s): %s",
+                        self.host,
+                        attempt + 1,
+                        total_duration,
+                        http_status,
+                        request_content_type,
+                        response_content_type,
+                        response_content_length,
+                        response_text_length,
+                        err,
+                    )
+                    raise UpdateFailed(
+                        f"Abruf von {self.host} nach {attempt + 1} Versuchen "
+                        f"fehlgeschlagen: {err}"
+                    ) from err
+                _LOGGER.debug(
+                    "POST-Abfrage von %s fehlgeschlagen (Versuch %d/%d); "
+                    "wiederhole in %d s: %s",
+                    self.host,
+                    attempt + 1,
+                    MAX_RETRIES + 1,
+                    RETRY_DELAY,
+                    err,
+                )
+                await asyncio.sleep(RETRY_DELAY)
+            else:
+                self.last_request_duration = monotonic() - attempt_started_at
+                self.last_successful_update = datetime.now(timezone.utc)
+                return values
+            finally:
+                if response is not None:
+                    response.close()
+
+        raise UpdateFailed(
+            f"Abruf von {self.host} fehlgeschlagen: {last_error}"
+        ) from last_error
