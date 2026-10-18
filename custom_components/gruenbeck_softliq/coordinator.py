@@ -9,7 +9,6 @@ import re
 from time import monotonic
 from typing import Any
 
-import requests
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -28,9 +27,20 @@ _OPTIONAL_FIELDS = ("D_A_2_1", "D_A_2_2", "D_A_2_3")
 _NUMBER_PATTERN = re.compile(r"[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)")
 
 
-def _post_request(url: str) -> requests.Response:
+class RequestFailed(Exception):
+    """Raised when the device POST fails in the request worker."""
+
+
+def _post_request(url: str) -> Any:
     """Perform the blocking POST using the known-working requests behavior."""
-    return requests.post(url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT)
+    import requests
+
+    try:
+        response = requests.post(url, data=REQUEST_DATA, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as err:
+        raise RequestFailed(str(err)) from err
 
 
 def _read_tag(content: str, tag: str) -> str | None:
@@ -117,7 +127,7 @@ class GruenbeckDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             content = response.text
             response_text_length = len(content)
             values = _parse_response(content)
-        except (requests.exceptions.RequestException, TimeoutError, ValueError) as err:
+        except (RequestFailed, TimeoutError, ValueError) as err:
             self.last_request_duration = monotonic() - started_at
             _LOGGER.warning(
                 "POST-Abfrage von %s fehlgeschlagen nach %.2f s "
